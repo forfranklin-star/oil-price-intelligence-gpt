@@ -1,0 +1,91 @@
+app:
+  timezone: Asia/Shanghai
+  rolling_window_days: 180
+  forecast_short_days: 14
+  forecast_medium_days: 90
+  random_seed: 42
+
+data:
+  market_history_days: 730
+  request_timeout_seconds: 15
+  request_delay_seconds: 0.8
+  min_market_rows: 60
+  max_market_staleness_days: 3
+  max_diesel_staleness_days: 7
+  allow_eia_fallback: true
+  eia_api_key: ""
+  eia_api_base: "https://api.eia.gov/v2/petroleum/pri/spt/data/"
+  min_diesel_rows: 30
+  user_agent: "OilPriceIntelligence/1.0 (+public-research-dashboard)"
+  yahoo_chart_base: "https://query1.finance.yahoo.com/v8/finance/chart"
+  fred_csv_base: "https://fred.stlouisfed.org/graph/fredgraph.csv"
+  google_news_rss: "https://news.google.com/rss/search"
+  # 生产环境必须接入真实柴油历史数据；CSV 至少包含 date,price 两列。
+  china_diesel_csv_urls: []
+
+# 国内柴油多服务器数据源。不同统计口径不拼接成一条序列；按 training_priority 整段降级。
+diesel_sources:
+  enabled:
+    longzhong: true
+    business_society: true
+    zhuochuang: true
+    sina: true
+    configured_csv: true
+  training_priority:
+    - longzhong
+    - business_society
+    - zhuochuang
+    - configured_csv
+    - sina
+  crosscheck_max_gap_pct: 15.0
+  longzhong:
+    url: "https://www.oilchem.net/seo-445-7.html"
+    backfill_public_articles: true
+    archive_url_template: "https://list.oilchem.net/445/{page}.html"
+    archive_pages: 8
+    max_article_fetches: 55
+  business_society:
+    url: "https://m1.100ppi.com/vane/490-%E6%9F%B4%E6%B2%B9"
+  # 卓创公开页路径会变化；这里只读取无需登录且明确公开的页面，不绕过订阅/验证码。
+  zhuochuang:
+    public_urls: []
+  # 新浪用于独立零售/政策价校验；可持续追加官方转载或省级价格文章 URL。
+  sina:
+    article_urls:
+      - "https://finance.sina.com.cn/wm/2026-08-28/doc-inipwhrw0013144.shtml"
+      - "https://finance.sina.com.cn/roll/2026-08-28/doc-inipwnxr5836025.shtml"
+
+symbols:
+  wti: "CL=F"
+  brent: "BZ=F"
+  dxy: "DX-Y.NYB"
+  cnyusd: "CNY=X"
+  eia:
+    wti: "RWTC"
+    brent: "RBRTE"
+
+fred_series:
+  us10y: "DGS10"
+  cpi: "CPIAUCSL"
+  nonfarm: "PAYEMS"
+  broad_usd: "DTWEXBGS"
+
+weights:
+  manual_prior_strength: 0.35
+  manual:
+    geopolitical_risk: 0.24
+    usd_return: -0.16
+    us10y_change: -0.10
+    cpi_surprise_proxy: -0.07
+    payroll_momentum: 0.06
+    institution_score: 0.13
+    brent_return: 0.18
+    momentum_5d: 0.06
+
+news:
+  required: false
+  queries:
+    - "oil OPEC Russia Iran sanctions crude"
+    - "WTI Brent oil supply demand EIA IEA OPEC"
+    - "Red Sea oil tanker attack energy"
+    - "Goldman JPMorgan UBS oil price forecast"
