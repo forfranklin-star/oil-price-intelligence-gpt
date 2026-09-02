@@ -19,7 +19,7 @@ from src.utils import ROOT, atomic_json_dump, dataframe_records, ensure_dirs, lo
 def _diesel_forecast(diesel: pd.DataFrame, wti_current: float, wti_future: dict) -> dict:
     cur = float(diesel["price"].iloc[-1])
     ratio = wti_future["mean"] / max(wti_current, 1e-9)
-    # Domestic retail/wholesale adjustment is administratively lagged; damp pass-through.
+    # Research forecast from the observed domestic diesel series; no proxy is used.
     mean = cur * (1 + (ratio - 1) * 0.55)
     width = max(cur * 0.035, abs(mean - cur) * 0.8)
     return {"mean": mean, "low": mean - width, "high": mean + width}
@@ -47,6 +47,8 @@ def run_pipeline() -> dict:
     events, src_news = news_provider.fetch(30)
     diesel, src_diesel = ChinaDieselProvider(cfg).history(brent, cny)
 
+    if events.empty:
+        events = pd.DataFrame(columns=["published", "title", "link", "source", "geopolitical_score", "institution_score", "direction"])
     features = build_feature_frame(wti, brent, dxy, us10y, cpi, payroll, events)
     bundle = train_weight_models(features, cfg)
     short_path = short_forecast(features, bundle, cfg["app"]["forecast_short_days"])
@@ -93,7 +95,7 @@ def run_pipeline() -> dict:
             "short_path": dataframe_records(short_path),
         },
         "events": dataframe_records(impacts.head(40)),
-        "disclaimer": "本系统为研究与信息分析工具。预测区间、概率与事件影响均为统计模型估算，不构成交易、投资或采购决策建议。国内柴油代理序列在未配置真实数据源时仅用于演示。",
+        "disclaimer": "本系统仅使用经来源与新鲜度校验的真实观测数据；任一关键数据源缺失或过期时任务失败，不使用模拟、随机生成或隐式代理数据。预测区间、概率与事件影响均为统计模型估算。",
     }
 
     with connect() as con:

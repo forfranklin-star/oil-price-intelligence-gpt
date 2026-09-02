@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from urllib.parse import quote_plus
 import xml.etree.ElementTree as ET
 
@@ -20,7 +19,13 @@ BEARISH = {
 INSTITUTIONS = ["goldman", "jpmorgan", "ubs", "iea", "eia", "opec", "morgan stanley", "barclays"]
 
 
+class NewsDataError(RuntimeError):
+    pass
+
+
 class NewsProvider:
+    """Verified-news provider. Never creates demo/synthetic news."""
+
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.session = requests.Session()
@@ -29,10 +34,7 @@ class NewsProvider:
     @staticmethod
     def score_text(text: str) -> tuple[float, float, str]:
         t = text.lower()
-        geo = 0.0
-        for k, v in {**BULLISH, **BEARISH}.items():
-            if k in t:
-                geo += v
+        geo = sum(v for k, v in BULLISH.items() if k in t) + sum(v for k, v in BEARISH.items() if k in t)
         inst = 0.0
         if any(x in t for x in INSTITUTIONS):
             if any(x in t for x in ["raise forecast", "bullish", "upgrade", "higher oil", "price target raised"]):
@@ -50,51 +52,34 @@ class NewsProvider:
             def txt(tag: str) -> str:
                 node = item.find(tag)
                 return node.text.strip() if node is not None and node.text else ""
-            rows.append({
-                "title": txt("title"),
-                "link": txt("link"),
-                "published": txt("pubDate"),
-                "description": txt("description"),
-                "source": txt("source") or "Google News",
-            })
+            rows.append({"title": txt("title"), "link": txt("link"), "published": txt("pubDate"),
+                         "description": txt("description"), "source": txt("source") or "Google News"})
         return rows
 
     def fetch(self, lookback_days: int = 30) -> tuple[pd.DataFrame, str]:
         rows = []
-        try:
-            for q in self.cfg["news"]["queries"]:
+        errors = []
+        for q in self.cfg["news"]["queries"]:
+            try:
                 url = f'{self.cfg["data"]["google_news_rss"]}?q={quote_plus(q + " when:" + str(lookback_days) + "d")}&hl=en-US&gl=US&ceid=US:en'
                 r = self.session.get(url, timeout=self.cfg["data"]["request_timeout_seconds"], headers=self.headers)
                 r.raise_for_status()
                 for e in self._parse_rss(r.text)[:30]:
-                    published = pd.to_datetime(e.get("published") or datetime.now(timezone.utc), utc=True, errors="coerce")
+                    published = pd.to_datetime(e.get("published"), utc=True, errors="coerce")
                     if pd.isna(published):
-                        published = pd.Timestamp.now(tz="UTC")
+                        continue
                     published = published.tz_convert(None)
                     title = e.get("title", "")
                     summary = e.get("description", "")
                     geo, inst, direction = self.score_text(title + " " + summary)
-                    rows.append({
-                        "published": published,
-                        "title": title,
-                        "link": e.get("link", ""),
-                        "source": e.get("source", "Google News"),
-                        "geopolitical_score": geo,
-                        "institution_score": inst,
-                        "direction": direction,
-                    })
-            if not rows:
-                raise ValueError("no news")
-            df = pd.DataFrame(rows).drop_duplicates(subset=["title"]).sort_values("published", ascending=False)
-            return df, "google_news_rss"
-        except Exception:
-            now = pd.Timestamp.today().normalize()
-            demo = [
-                ("OPEC+ signals cautious supply policy amid demand uncertainty", 0.8, 0.2),
-                ("Major bank keeps crude outlook broadly unchanged", 0.0, 0.0),
-                ("Shipping risk premium remains elevated on key trade route", 1.3, 0.0),
-            ]
-            return pd.DataFrame([
-                {"published": now - pd.Timedelta(days=i), "title": t, "link": "", "source": "demo", "geopolitical_score": g, "institution_score": s, "direction": "看涨" if g+s>0.2 else "中性"}
-                for i, (t, g, s) in enumerate(demo)
-            ]), "synthetic_fallback"
+                    rows.append({"published": published, "title": title, "link": e.get("link", ""),
+                                 "source": e.get("source", "Google News"), "geopolitical_score": geo,
+                                 "institution_score": inst, "direction": direction})
+            except Exception as exc:
+                errors.append(f"{q}: {exc}")
+        if not rows:
+            if self.cfg["news"].get("required", False):
+                raise NewsDataError("No verified news available: " + " | ".join(errors))
+            return pd.DataFrame(columns=["published", "title", "link", "source", "geopolitical_score", "institution_score", "direction"]), "no_verified_news"
+        df = pd.DataFrame(rows).drop_duplicates(subset=["title"]).sort_values("published", ascending=False)
+        return df, "google_news_rss"

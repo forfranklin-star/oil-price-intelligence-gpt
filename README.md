@@ -63,7 +63,7 @@ streamlit run streamlit_app.py
 - DXY：`DX-Y.NYB`
 - CNY/USD：`CNY=X`
 
-接口异常、限流或历史长度不足时，Provider 自动回退到**确定性模拟数据**，并在报告 `data_status` 中标记 `synthetic_fallback`。生产部署建议增加 EIA、Nasdaq Data Link、Polygon、Twelve Data 等正式 API Provider，并按授权条款使用。
+旧版本曾在接口异常时静默回退到确定性模拟数据，这会导致日报看起来“有数据”但实际上是假的。**当前版本已经移除该行为**：真实行情源失败、数据超过新鲜度阈值或数据质量检查失败时，任务直接失败，不生成伪造日报。WTI/Brent 优先使用 EIA 官方石油现货数据（需要 `EIA_API_KEY`），否则使用 Yahoo Chart 的延迟行情作为后备，并强制检查最新观测不超过 3 天。
 
 ### 宏观数据
 
@@ -94,7 +94,7 @@ date,price
 2026-09-01,7580
 ```
 
-未配置时，系统用 Brent 与 CNY 汇率构造代理序列，并在页面显著提示。接入金投网、生意社、发改委等来源前，应确认 robots.txt、服务条款和转载/抓取授权；若页面反爬，优先改用获得授权的 API/数据供应商，而不是绕过限制。
+当前版本默认**禁止**代理序列。未配置真实国内柴油数据时，日报任务会失败而不是输出伪造柴油价格；只有显式设置 `allow_diesel_proxy: true` 才允许研究用代理。接入金投网、生意社、发改委等来源前，应确认 robots.txt、服务条款和转载/抓取授权；若页面反爬，优先改用获得授权的 API/数据供应商，而不是绕过限制。
 
 ## 4. 模型设计
 
@@ -183,6 +183,13 @@ GitHub Actions 的 schedule 默认按 UTC，因此 `02:00 UTC = 10:00 北京时�
 
 如果你将来加入付费 API Key，不要提交到仓库：在 GitHub Actions Secrets 和 Streamlit Secrets 中配置，然后通过环境变量读取。
 
+
+### 生产环境必须配置的密钥
+
+在 GitHub 仓库 `Settings -> Secrets and variables -> Actions` 中添加 `EIA_API_KEY`。不要把 API Key 写进 `config.yaml` 或提交到 Git。工作流会通过环境变量读取。
+
+如果没有 EIA Key，WTI/Brent 会退回 Yahoo 延迟行情；如果 Yahoo 也不满足 3 天新鲜度阈值，任务会失败并保留错误日志，不会生成错误报告。
+
 ## 8. 接入真实国内柴油数据
 
 推荐新建 Provider，而不是改页面代码。例如：
@@ -217,3 +224,13 @@ class RealDieselProvider:
 - 设置明确 User-Agent、超时和请求间隔；
 - 优先使用官方 API/RSS/公开下载文件；
 - 商用前核对数据转载、缓存和公开展示许可。
+
+## Real-data policy (strict)
+
+This version is **fail-closed**. It never creates synthetic prices, demo news, random observations, or hidden Brent/CNY proxy diesel prices. A key market series that is empty, malformed, too short, or stale causes the daily job to fail rather than publish a misleading report. News can be absent and is then represented as missing/zero event features; it is never invented.
+
+For WTI/Brent, the daily market series is fetched from Yahoo Finance's real market-history endpoint first; EIA spot series are a secondary fallback and are recorded separately as `eia_spot:*`. Yahoo's data is delayed, so the report labels the source and retrieval time.
+
+For China diesel, production requires a real historical CSV/API source configured in `data.china_diesel_csv_urls`. The CSV must contain `date,price`, must have at least `min_diesel_rows`, and must pass freshness and positivity checks. If that source is not available, the pipeline stops.
+
+The current official evidence confirms that EIA publishes WTI/Brent spot histories and that NDRC publishes domestic product-price adjustments; provincial development-and-reform commissions publish concrete diesel retail/wholesale prices. These are useful source families, but an official announcement alone is not treated as a complete historical diesel time series.
