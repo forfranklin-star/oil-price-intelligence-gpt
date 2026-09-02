@@ -1,0 +1,40 @@
+app:
+  timezone: Asia/Shanghai
+  report_dir: reports
+  db_path: data/oil.db
+  max_age_days:
+    market: 5
+    diesel: 7
+
+data:
+  history_days: 730
+  timeout: 20
+  user_agent: "Mozilla/5.0 (OilPriceIntelligence/2.0)"
+  fred_csv: "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
+  yahoo_chart: "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+
+series:
+  wti_fred: DCOILWTICO
+  brent_fred: DCOILBRENTEU
+  dxy_fred: DTWEXBGS
+  cnyusd_fred: DEXCHUS
+  wti_yahoo: CL=F
+  brent_yahoo: BZ=F
+  dxy_yahoo: DX-Y.NYB
+  cnyusd_yahoo: CNY=X
+
+diesel:
+  longzhong_category: "https://oil.oilchem.net/445/"
+  longzhong_archive: "https://list.oilchem.net/445/{page}.html"
+  archive_pages: 10
+  max_articles: 80
+  business_society: "https://m1.100ppi.com/vane/490-%E6%9F%B4%E6%B2%B9"
+  configured_csv: ""
+  min_rows: 7
+  crosscheck_gap_pct: 20
+
+model:
+  min_train_rows: 120
+  short_days: 7
+  medium_days: 30
+  long_days: 90
